@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: List
 items:
-- apiVersion: v1
+- apiVersion: build.openshift.io/v1
   kind: BuildConfig
   metadata:
     name: static-site
@@ -11,9 +11,9 @@ items:
     source:
       type: Git
       git:
-        uri: ${REPOSITORY_URL}  # Will be replaced with your Git repository
+        uri: ${REPOSITORY_URL}
         ref: main
-      contextDir: /  # Adjust if your static content is in a subdirectory
+      contextDir: /
     strategy:
       type: Source
       sourceStrategy:
@@ -27,6 +27,13 @@ items:
         name: static-site:latest
 
 - apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: static-site
+    labels:
+      app: static-site
+
+- apiVersion: apps.openshift.io/v1
   kind: DeploymentConfig
   metadata:
     name: static-site
@@ -43,7 +50,7 @@ items:
       spec:
         containers:
         - name: static-site
-          image: static-site:latest
+          image: image-registry.openshift-image-registry.svc:5000/${PROJECT_NAME}/static-site:latest
           ports:
           - containerPort: 8080
           resources:
@@ -65,6 +72,16 @@ items:
               port: 8080
             initialDelaySeconds: 3
             timeoutSeconds: 3
+    triggers:
+    - type: ConfigChange
+    - type: ImageChange
+      imageChangeParams:
+        automatic: true
+        containerNames:
+          - static-site
+        from:
+          kind: ImageStreamTag
+          name: static-site:latest
 
 - apiVersion: v1
   kind: Service

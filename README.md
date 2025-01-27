@@ -7,13 +7,14 @@ This repository contains configuration files for deploying a static website on O
 - OpenShift CLI (`oc`) installed and configured
 - Access to an OpenShift cluster with necessary permissions
 - Git repository containing your static website content
-- `envsubst` command (part of `gettext` package) if using variable substitution
+- `envsubst` command (part of `gettext` package) for variable substitution
 
 ## Components
 
 The deployment consists of several OpenShift resources:
 
 - **BuildConfig**: Creates an image using NGINX to serve your static content
+- **ImageStream**: Manages the container images for your application
 - **DeploymentConfig**: Manages the deployment with 2 replicas for high availability
 - **Service**: Provides internal networking for the application
 - **Route**: Exposes the application externally with TLS termination
@@ -26,7 +27,7 @@ The deployment consists of several OpenShift resources:
 - Memory Limit: 256Mi
 - Replicas: 2
 
-## Quick Start
+## Deployment Steps
 
 1. Clone this repository:
    ```bash
@@ -34,60 +35,116 @@ The deployment consists of several OpenShift resources:
    cd <repository-directory>
    ```
 
-2. Set your static site repository URL:
+2. Set required environment variables:
    ```bash
+   # Your static site repository URL
    export REPOSITORY_URL="https://github.com/yourusername/your-static-site"
-   ```
-
-3. Deploy to OpenShift:
-   ```bash
-   # Using variable substitution
-   envsubst < static-site.yaml | oc apply -f -
    
-   # Or directly if you've modified the YAML file
-   oc apply -f static-site.yaml
+   # Your OpenShift project name
+   export PROJECT_NAME=$(oc project -q)
    ```
 
-## Deployment Verification
-
-1. Check the build status:
+3. Import the NGINX base image:
    ```bash
-   oc get builds
+   oc import-image nginx --from=registry.redhat.io/ubi8/nginx-120 --confirm
+   ```
+
+4. Deploy to OpenShift:
+   ```bash
+   envsubst < static-site.yaml | oc apply -f -
+   ```
+
+5. Start the build:
+   ```bash
+   oc start-build static-site
+   ```
+
+## Build and Deployment Verification
+
+1. Monitor the build progress:
+   ```bash
    oc logs -f bc/static-site
    ```
 
-2. Verify the deployment:
+2. Check deployment status:
    ```bash
    oc get pods
-   oc get routes
+   oc get dc
    ```
 
-3. Access your site using the Route URL:
+3. Verify the route:
    ```bash
    oc get route static-site -o jsonpath='{.spec.host}{"\n"}'
    ```
 
-## Configuration
+## Configuration Details
 
 ### BuildConfig
 
-The BuildConfig uses the Source strategy with NGINX as the base image. You can customize the build by:
+The BuildConfig uses the Source strategy with NGINX as the base image:
+- Sources content from your Git repository
+- Uses OpenShift's NGINX builder image
+- Outputs to an ImageStream tag
 
-- Modifying the `contextDir` if your static content is in a subdirectory
-- Changing the Git reference (`ref`) to use a different branch or tag
-- Adding build environment variables if needed
+### ImageStream
+
+The ImageStream manages your application images:
+- Tags: latest
+- Automatically triggers new deployments on image updates
+- Internal registry path: image-registry.openshift-image-registry.svc:5000/${PROJECT_NAME}/static-site:latest
 
 ### DeploymentConfig
 
-The deployment is configured with:
-
+The deployment includes:
 - Health checks (liveness and readiness probes)
 - Resource limits and requests
 - Rolling deployment strategy
+- Automatic triggers for image and configuration changes
 
-### Route Configuration
+## Troubleshooting
 
-The Route is configured with edge TLS termination and redirects insecure traffic to HTTPS.
+### Common Issues and Solutions
+
+1. Image Pull Errors
+   ```
+   Error: ErrImagePull or ImagePullBackOff
+   ```
+   Solutions:
+   - Verify ImageStream exists: `oc get is`
+   - Check build completed successfully: `oc logs -f bc/static-site`
+   - Ensure project name is correct in image path
+   - Verify NGINX base image is imported
+
+2. Build Failures
+   - Check build logs: `oc logs -f bc/static-site`
+   - Verify Git repository accessibility
+   - Ensure NGINX builder image is available: `oc get is nginx -n openshift`
+
+3. Deployment Issues
+   - Check deployment events: `oc describe dc/static-site`
+   - Verify pod logs: `oc logs <pod-name>`
+   - Check resource quotas: `oc get quota`
+
+### Debug Commands
+
+```bash
+# Check build status
+oc get builds
+oc describe build/static-site-1
+
+# Verify image stream
+oc get imagestream static-site
+oc describe imagestream static-site
+
+# Check deployment
+oc rollout status dc/static-site
+oc describe dc/static-site
+
+# Pod verification
+oc get pods
+oc describe pod <pod-name>
+oc logs <pod-name>
+```
 
 ## Customization
 
@@ -95,7 +152,7 @@ The Route is configured with edge TLS termination and redirects insecure traffic
 
 To customize the NGINX configuration:
 
-1. Create a ConfigMap with your custom nginx.conf:
+1. Create a ConfigMap:
    ```bash
    oc create configmap nginx-config --from-file=nginx.conf
    ```
@@ -106,39 +163,11 @@ To customize the NGINX configuration:
    - name: nginx-config
      configMap:
        name: nginx-config
+   volumeMounts:
+   - name: nginx-config
+     mountPath: /etc/nginx/nginx.conf
+     subPath: nginx.conf
    ```
-
-### Environment Variables
-
-To add environment variables to your deployment:
-
-1. Edit the DeploymentConfig in `static-site.yaml`
-2. Add environment variables under the container specification:
-   ```yaml
-   containers:
-   - name: static-site
-     env:
-     - name: MY_VARIABLE
-       value: "my-value"
-   ```
-
-## Troubleshooting
-
-### Common Issues
-
-1. Build Failures
-   - Verify Git repository accessibility
-   - Check build logs: `oc logs -f bc/static-site`
-
-2. Deployment Issues
-   - Check pod status: `oc get pods`
-   - View pod logs: `oc logs <pod-name>`
-   - Describe pod for events: `oc describe pod <pod-name>`
-
-3. Route Access Issues
-   - Verify route creation: `oc get routes`
-   - Check TLS configuration
-   - Verify DNS resolution
 
 ## Contributing
 
