@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: List
+items:
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    name: static-site
+    labels:
+      app: static-site
+  spec:
+    source:
+      type: Git
+      git:
+        uri: ${REPOSITORY_URL}  # Will be replaced with your Git repository
+        ref: main
+      contextDir: /  # Adjust if your static content is in a subdirectory
+    strategy:
+      type: Source
+      sourceStrategy:
+        from:
+          kind: ImageStreamTag
+          namespace: openshift
+          name: nginx:latest
+    output:
+      to:
+        kind: ImageStreamTag
+        name: static-site:latest
+
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    name: static-site
+    labels:
+      app: static-site
+  spec:
+    replicas: 2
+    selector:
+      app: static-site
+    template:
+      metadata:
+        labels:
+          app: static-site
+      spec:
+        containers:
+        - name: static-site
+          image: static-site:latest
+          ports:
+          - containerPort: 8080
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: 200m
+            requests:
+              memory: 128Mi
+              cpu: 100m
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 30
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 3
+            timeoutSeconds: 3
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: static-site
+    labels:
+      app: static-site
+  spec:
+    ports:
+    - name: web
+      port: 80
+      targetPort: 8080
+    selector:
+      app: static-site
+
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: static-site
+    labels:
+      app: static-site
+  spec:
+    to:
+      kind: Service
+      name: static-site
+    port:
+      targetPort: web
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
